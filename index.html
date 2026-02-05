@@ -366,6 +366,104 @@
   const velEl = document.getElementById("vel");
   const volEl = document.getElementById("vol");
 
+    // ---------------------------
+  // Phase 1.5: Computer keyboard input (QWERTY)
+  // ---------------------------
+
+  // QWERTY mapping uses "piano row" layout:
+  // White keys: A S D F G H J K = C D E F G A B C
+  // Black keys: W E T Y U       = C# D# F# G# A#
+  //
+  // This is relative to the visible keyboard range start (C of the base octave),
+  // so octave shifting affects both on-screen and QWERTY together.
+
+  const QWERTY_WHITE = ["KeyA","KeyS","KeyD","KeyF","KeyG","KeyH","KeyJ","KeyK"];
+  const QWERTY_BLACK = ["KeyW","KeyE","KeyT","KeyY","KeyU"];
+
+  // Semitone offsets from C for each key in the above lists:
+  // White: C D E F G A B C
+  const WHITE_OFFSETS = [0, 2, 4, 5, 7, 9, 11, 12];
+  // Black: C# D# F# G# A#
+  const BLACK_OFFSETS = [1, 3, 6, 8, 10];
+
+  const qwertyCodeToOffset = new Map();
+  QWERTY_WHITE.forEach((code, i) => qwertyCodeToOffset.set(code, WHITE_OFFSETS[i]));
+  QWERTY_BLACK.forEach((code, i) => qwertyCodeToOffset.set(code, BLACK_OFFSETS[i]));
+
+  const keyboardHeld = new Set(); // codes currently held down (prevents repeat spam)
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+  }
+
+  // For QWERTY, velocity is fixed (user can adjust with the Velocity slider).
+  function qwertyVelocity() {
+    return Number(velEl.value);
+  }
+
+  function qwertyBaseC() {
+    // Visible keyboard start is BASE_START + octaveOffset*12 (which is a C)
+    return BASE_START + octaveOffset * 12;
+  }
+
+  window.addEventListener("keydown", (e) => {
+    // Don't hijack typing or slider interactions
+    if (isTypingTarget(e.target)) return;
+
+    // Octave shift via Z / X
+    if (e.code === "KeyZ") {
+      e.preventDefault();
+      setOctaveOffset(octaveOffset - 1);
+      return;
+    }
+    if (e.code === "KeyX") {
+      e.preventDefault();
+      setOctaveOffset(octaveOffset + 1);
+      return;
+    }
+
+    const offset = qwertyCodeToOffset.get(e.code);
+    if (offset == null) return;
+
+    // Prevent browser from scrolling on space/etc (not used now, but safe pattern)
+    e.preventDefault();
+
+    // Ignore auto-repeat: only fire on first press
+    if (e.repeat) return;
+    if (keyboardHeld.has(e.code)) return;
+
+    keyboardHeld.add(e.code);
+
+    const note = qwertyBaseC() + offset;
+    noteOn({
+      note,
+      velocity: qwertyVelocity(),
+      source: "keyboard",
+      time: performance.now()
+    });
+  }, { passive: false });
+
+  window.addEventListener("keyup", (e) => {
+    if (isTypingTarget(e.target)) return;
+
+    const offset = qwertyCodeToOffset.get(e.code);
+    if (offset == null) return;
+
+    e.preventDefault();
+
+    if (!keyboardHeld.has(e.code)) return;
+    keyboardHeld.delete(e.code);
+
+    const note = qwertyBaseC() + offset;
+    noteOff({
+      note,
+      source: "keyboard",
+      time: performance.now()
+    });
+  }, { passive: false });
+
   function noteOn(evt) {
     const { note, velocity, source, time } = evt; // source/time reserved for later
     pressedNotes.add(note);
@@ -565,6 +663,7 @@
     audio.allOff();
     pressedNotes.clear();
     pointerToNote.clear();
+    keyboardHeld.clear();
     for (const el of noteToEl.values()) el.classList.remove("active");
   });
 
